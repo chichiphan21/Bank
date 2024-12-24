@@ -3,6 +3,7 @@ package org.dacs.Client.UIView;
 import org.dacs.Common.BankService;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.rmi.RemoteException;
@@ -30,8 +31,34 @@ public class OTPVerification extends JFrame {
         setSize(300, 200);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
-        add(otpPanel);
 
+        initComponents();
+        addListeners();
+    }
+
+    private void initComponents() {
+        // Panel setup
+        otpPanel = new JPanel();
+        otpPanel.setLayout(new GridLayout(3, 1, 10, 10));
+
+        // Instruction label
+        instructionLabel = new JLabel("Enter the OTP sent to your email:");
+        instructionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        otpPanel.add(instructionLabel);
+
+        // OTP input field
+        otpField = new JTextField();
+        otpPanel.add(otpField);
+
+        // Verify button
+        verifyButton = new JButton("Verify");
+        otpPanel.add(verifyButton);
+
+        // Add panel to the frame
+        add(otpPanel);
+    }
+
+    private void addListeners() {
         verifyButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -59,17 +86,4 @@ public class OTPVerification extends JFrame {
             }
         });
     }
-//
-//    public static void main(String[] args) {
-//        // Example usage
-//        try {
-//            BankService server1 = (BankService) java.rmi.Naming.lookup("//localhost:2000/BankService");
-//            BankService server2 = (BankService) java.rmi.Naming.lookup("//localhost:2004/BankService");
-//
-//            // For testing purposes, replace with actual user data
-//            new OTPVerification("testUser", "password", "test@example.com", server1, server2).setVisible(true);
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//        }
-//    }
 }

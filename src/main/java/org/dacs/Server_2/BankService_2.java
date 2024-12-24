@@ -25,7 +25,7 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
         super();
         try {
             Class.forName("org.postgresql.Driver");
-            connection = DriverManager.getConnection("jdbc:postgresql://localhost:5433/BankServer_2", "postgres", "chi2107");
+            connection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/BankServer_2", "postgres", "admin");
             logger.info("Connected to BankServer_2 database.");
         } catch (Exception e) {
             logger.error("Failed to connect to the database.", e);
