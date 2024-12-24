@@ -52,9 +52,11 @@ public class Register extends JFrame {
                     try {
                         if (server1.register(username, password, email)) {
                             JOptionPane.showMessageDialog(Register.this, "Registration to Server 1: Success");
-                            BankClientView bankClientView = new BankClientView(username, server1, server2);
-                            bankClientView.setVisible(true);
-                            server1.login(username, password);
+//                            BankClientView bankClientView = new BankClientView(username, server1, server2);
+//                            bankClientView.setVisible(true);
+//                            server1.login(username, password);
+                            OTPVerification otpVerification = new OTPVerification(username, password, email, server1, server2);
+                            otpVerification.setVisible(true);
                         } else {
                             JOptionPane.showMessageDialog(Register.this, "Registration to Server 1: Failed");
                         }
