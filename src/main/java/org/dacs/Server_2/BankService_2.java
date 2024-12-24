@@ -1,8 +1,6 @@
 package org.dacs.Server_2;
 
-import org.dacs.Common.BankService;
-import org.dacs.Common.ServerAddress;
-import org.dacs.Common.TransactionResult;
+import org.dacs.Common.*;
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +11,8 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.sql.*;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +32,75 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
             throw new RemoteException("Failed to connect to the database.", e);
         }
     }
+
+    @Override
+    public boolean sendOTP(String to, String subject, String text) throws RemoteException {
+        try {
+//        Step 1: Create OTP and time created otp and store in database
+            String otp = Otp.generateOTP();
+            String query = "UPDATE users SET otp = ?, otp_created_at = NOW() WHERE email = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(query)) {
+                stmt.setString(1, otp);
+                stmt.setString(2, to);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                logger.error("Error storing OTP for email: {}", to, e);
+                throw new RemoteException("Error storing OTP for email: " + to, e);
+            }
+//        Step 2: Send OTP to email
+            EmailSender.sendEmail(to, subject, text + otp);
+            logger.info("OTP sent to email: {}", to);
+            syncOtpWithOtherServers(to, otp);
+//        Step 3 : Return true if send email success
+            return true;
+        } catch (Exception e) {
+            logger.error("Error sending OTP to email: {}", to, e);
+            return false;
+        }
+    }
+
+
+    @Override
+    public boolean verifyOTP(String username, String otp) throws RemoteException {
+        try {
+//        Step 1: Check OTP in database
+            String otpCreatedAt = "";
+            String query = "SELECT otp, otp_created_at FROM users WHERE username = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(query)) {
+                stmt.setString(1, username);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        otpCreatedAt = rs.getString("otp_created_at");
+                        String storedOtp = rs.getString("otp");
+                        if (!otp.equals(storedOtp)) {
+                            logger.warn("Invalid OTP: {}", otp);
+                            return false;
+                        }
+                    } else {
+                        logger.warn("User not found: {}", username);
+                        return false;
+                    }
+                }
+            } catch (SQLException e) {
+                logger.error("Error verifying OTP for user: {}", username, e);
+                throw new RemoteException("Error verifying OTP for user: " + username, e);
+            }
+            //        Step 2: Check time created otp < 5 minutes
+            LocalDateTime otpCreatedTime = LocalDateTime.parse(otpCreatedAt);
+            LocalDateTime currentTime = LocalDateTime.now();
+            Duration duration = Duration.between(otpCreatedTime, currentTime);
+            if (duration.toMinutes() > 5) {
+                logger.warn("OTP expired: {}", otp);
+                return false;
+            }
+            //        Step 3: Return true if all true
+            return true;
+        } catch (Exception e) {
+            logger.error("Error verifying OTP: {}", otp, e);
+            return false;
+        }
+    }
+
 
     // User Management Methods
     @Override
@@ -363,6 +432,24 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
         // Optionally sync with other servers if needed
     }
 
+
+    @Override
+    public void syncOTP(String username, String otp) throws RemoteException {
+        String query = "UPDATE users SET otp = ? WHERE username = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setString(1, otp);
+            stmt.setString(2, username);
+            int rowsUpdated = stmt.executeUpdate();
+            if (rowsUpdated > 0) {
+                logger.info("OTP synced for user: {}", username);
+            } else {
+                logger.warn("OTP sync failed: User {} not found.", username);
+            }
+        } catch (SQLException e) {
+            logger.error("Error syncing OTP for user: {}", username, e);
+        }
+    }
+
     // Helper Methods
     private void updateBalance(String username, double newBalance) {
         String query = "UPDATE users SET balance = ? WHERE username = ?";
@@ -491,7 +578,27 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
             }
         }
     }
+    private void syncOtpWithOtherServers(String username, String otp) {
+        List<ServerAddress> servers = new ArrayList<>();
+        servers.add(new ServerAddress("localhost", 2000)); // Server 1
+        // servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
 
+        // Exclude self from synchronization to prevent recursive calls
+        servers.removeIf(server -> server.getPort() == 2004); // Server 1's port
+
+        for (ServerAddress server : servers) {
+            try {
+                Registry registry = LocateRegistry.getRegistry(server.getAddress(), server.getPort());
+                BankService bankService = (BankService) registry.lookup("BankService");
+
+                // Call syncRegister on other servers with hashed password
+                bankService.syncOTP(username, otp);
+                logger.info("Successfully synced registration with server: {}", server);
+            } catch (Exception e) {
+                logger.error("Error syncing registration with server: {}", server, e);
+            }
+        }
+    }
     // Main Method to Start Server 2
     public static void main(String[] args) {
         try {
