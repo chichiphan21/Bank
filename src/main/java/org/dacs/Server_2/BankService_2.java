@@ -214,7 +214,107 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
             }
         }
     }
+    @Override
+    public TransactionResult transfer(String sender, String receiver, double amount, String description) throws RemoteException {
+        String getSenderQuery = "SELECT id, balance FROM users WHERE username = ?";
+        String getReceiverQuery = "SELECT id FROM users WHERE username = ?";
+        String updateSenderBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
+        String updateReceiverBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
+        String insertTransactionQuery = "INSERT INTO transactions (user_id, amount, description, timestamp) VALUES (?, ?, ?, NOW())";
 
+        try {
+            connection.setAutoCommit(false); // Bắt đầu transaction
+
+            int senderId;
+            double senderBalance;
+            int receiverId;
+
+            // Lấy thông tin người gửi
+            try (PreparedStatement senderStmt = connection.prepareStatement(getSenderQuery)) {
+                senderStmt.setString(1, sender);
+                try (ResultSet rs = senderStmt.executeQuery()) {
+                    if (rs.next()) {
+                        senderId = rs.getInt("id");
+                        senderBalance = rs.getDouble("balance");
+                    } else {
+                        throw new RemoteException("Sender not found: " + sender);
+                    }
+                }
+            }
+
+            // Kiểm tra số dư
+            if (senderBalance < amount) {
+                throw new RemoteException("Insufficient funds for sender: " + sender);
+            }
+
+            // Lấy thông tin người nhận
+            try (PreparedStatement receiverStmt = connection.prepareStatement(getReceiverQuery)) {
+                receiverStmt.setString(1, receiver);
+                try (ResultSet rs = receiverStmt.executeQuery()) {
+                    if (rs.next()) {
+                        receiverId = rs.getInt("id");
+                    } else {
+                        throw new RemoteException("Receiver not found: " + receiver);
+                    }
+                }
+            }
+
+            // Cập nhật số dư người gửi
+            double newSenderBalance = senderBalance - amount;
+            try (PreparedStatement updateSenderStmt = connection.prepareStatement(updateSenderBalanceQuery)) {
+                updateSenderStmt.setDouble(1, newSenderBalance);
+                updateSenderStmt.setInt(2, senderId);
+                updateSenderStmt.executeUpdate();
+            }
+
+            // Cập nhật số dư người nhận
+            try (PreparedStatement updateReceiverStmt = connection.prepareStatement(updateReceiverBalanceQuery)) {
+                updateReceiverStmt.setDouble(1, amount); // Thêm tiền cho người nhận
+                updateReceiverStmt.setInt(2, receiverId);
+                updateReceiverStmt.executeUpdate();
+            }
+
+            // Ghi nhận giao dịch của người gửi
+            try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
+                insertTransactionStmt.setInt(1, senderId);
+                insertTransactionStmt.setDouble(2, -amount); // Âm vì là gửi tiền
+                insertTransactionStmt.setString(3, description);
+                insertTransactionStmt.executeUpdate();
+            }
+
+            // Ghi nhận giao dịch của người nhận
+            try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
+                insertTransactionStmt.setInt(1, receiverId);
+                insertTransactionStmt.setDouble(2, amount); // Dương vì là nhận tiền
+                insertTransactionStmt.setString(3, "Received from " + sender + ": " + description);
+                insertTransactionStmt.executeUpdate();
+            }
+
+            connection.commit(); // Commit transaction
+
+            // Trả về kết quả giao dịch
+            return new TransactionResult(
+                    true,
+                    newSenderBalance,
+                    -amount,
+                    description,
+                    new java.util.Date().toString()
+            );
+        } catch (Exception e) {
+            try {
+                connection.rollback(); // Rollback nếu xảy ra lỗi
+            } catch (SQLException rollbackEx) {
+                throw new RemoteException("Transaction failed and rollback failed", rollbackEx);
+            }
+            throw new RemoteException("Transfer failed: " + e.getMessage(), e);
+        } finally {
+            try {
+                connection.setAutoCommit(true); // Khôi phục trạng thái auto-commit
+            } catch (SQLException e) {
+                throw new RemoteException("Failed to reset auto-commit", e);
+            }
+        }
+    }
 
     @Override
     public double getBalance(String username) throws RemoteException {

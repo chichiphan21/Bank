@@ -14,7 +14,9 @@ public class BankClientView extends JFrame {
     private JLabel balanceLabel;
     private JTextField amountField;
     private JTextField descriptionField;
+    private JTextField recipientField; // Thêm trường người nhận
     private JButton withdrawButton;
+    private JButton transferButton; // Nút chuyển tiền
     private JButton logoutButton;
     private BankService server1;
     private BankService server2;
@@ -27,16 +29,15 @@ public class BankClientView extends JFrame {
         this.server2 = server2;
 
         setTitle("Bank Client");
-        setSize(400, 400);
+        setSize(400, 500);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Main panel with GridBagLayout for flexibility
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
 
         // Username Label
-        gbc.insets = new Insets(5,5,5,5);
+        gbc.insets = new Insets(5, 5, 5, 5);
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.anchor = GridBagConstraints.EAST;
@@ -80,17 +81,36 @@ public class BankClientView extends JFrame {
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(descriptionField, gbc);
 
+        // Recipient Field
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.anchor = GridBagConstraints.EAST;
+        panel.add(new JLabel("Recipient:"), gbc);
+
+        recipientField = new JTextField(10);
+        gbc.gridx = 1;
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(recipientField, gbc);
+
         // Withdraw Button
         withdrawButton = new JButton("Withdraw");
         gbc.gridx = 0;
-        gbc.gridy = 4;
+        gbc.gridy = 5;
         gbc.anchor = GridBagConstraints.CENTER;
         gbc.gridwidth = 2;
         panel.add(withdrawButton, gbc);
 
+        // Transfer Button
+        transferButton = new JButton("Transfer");
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.anchor = GridBagConstraints.CENTER;
+        gbc.gridwidth = 2;
+        panel.add(transferButton, gbc);
+
         // Transaction Area
         gbc.gridx = 0;
-        gbc.gridy = 5;
+        gbc.gridy = 7;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1.0;
@@ -104,7 +124,7 @@ public class BankClientView extends JFrame {
         // Logout Button
         logoutButton = new JButton("Logout");
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 8;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
@@ -116,61 +136,81 @@ public class BankClientView extends JFrame {
         updateBalance();
         loadTransactionHistory();
 
+        withdrawButton.addActionListener(e -> handleWithdraw());
+        transferButton.addActionListener(e -> handleTransfer()); // Hành động chuyển tiền
+        logoutButton.addActionListener(e -> handleLogout());
+    }
 
-        withdrawButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String amountText = amountField.getText().trim();
-                String description = descriptionField.getText().trim();
+    private void handleWithdraw() {
+        String amountText = amountField.getText().trim();
+        String description = descriptionField.getText().trim();
 
-                if (amountText.isEmpty() || description.isEmpty()) {
-                    JOptionPane.showMessageDialog(null, "Please enter both amount and description.");
-                    return;
-                }
+        if (amountText.isEmpty() || description.isEmpty()) {
+            JOptionPane.showMessageDialog(null, "Please enter both amount and description.");
+            return;
+        }
 
-                double amount;
-                try {
-                    amount = Double.parseDouble(amountText);
-                } catch (NumberFormatException ex) {
-                    JOptionPane.showMessageDialog(null, "Please enter a valid amount.");
-                    return;
-                }
-
-                try {
-                    TransactionResult result = server1.withdraw(username, amount, description);
-                    if (result.isSuccess()) {
-                        JOptionPane.showMessageDialog(null, "Transaction Successful\n"
-                                + "Amount Changed: " + result.getAmountChanged() + "\n"
-                                + "New Balance: " + result.getNewBalance() + "\n"
-                                + "Description: " + result.getDescription() + "\n"
-                                + "Timestamp: " + result.getTimestamp());
-                        updateBalance();
-                        loadTransactionHistory();
-                    } else {
-                        JOptionPane.showMessageDialog(null, "Transaction Failed: " + result.getDescription());
-                    }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    JOptionPane.showMessageDialog(null, "An error occurred during withdrawal.");
-                }
+        try {
+            double amount = Double.parseDouble(amountText);
+            TransactionResult result = server1.withdraw(username, amount, description);
+            if (result.isSuccess()) {
+                JOptionPane.showMessageDialog(null, "Transaction Successful\n"
+                        + "Amount Changed: " + result.getAmountChanged() + "\n"
+                        + "New Balance: " + result.getNewBalance() + "\n"
+                        + "Description: " + result.getDescription() + "\n"
+                        + "Timestamp: " + result.getTimestamp());
+                updateBalance();
+                loadTransactionHistory();
+            } else {
+                JOptionPane.showMessageDialog(null, "Transaction Failed: " + result.getDescription());
             }
-        });
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(null, "An error occurred during withdrawal.");
+        }
+    }
 
+    private void handleTransfer() {
+        String amountText = amountField.getText().trim();
+        String description = descriptionField.getText().trim();
+        String recipient = recipientField.getText().trim();
 
-        logoutButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                try {
-                    server1.logout(username);
-                    JOptionPane.showMessageDialog(null, "Logged out successfully");
-                    new LoginScreen().setVisible(true);
-                    dispose();
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    JOptionPane.showMessageDialog(null, "An error occurred during logout.");
-                }
+        if (amountText.isEmpty() || description.isEmpty() || recipient.isEmpty()) {
+            JOptionPane.showMessageDialog(null, "Please fill in all fields.");
+            return;
+        }
+
+        try {
+            double amount = Double.parseDouble(amountText);
+            TransactionResult result = server1.transfer(username, recipient, amount, description);
+            if (result.isSuccess()) {
+                JOptionPane.showMessageDialog(null, "Transfer Successful\n"
+                        + "Amount Transferred: " + result.getAmountChanged() + "\n"
+                        + "New Balance: " + result.getNewBalance() + "\n"
+                        + "Recipient: " + recipient + "\n"
+                        + "Description: " + result.getDescription() + "\n"
+                        + "Timestamp: " + result.getTimestamp());
+                updateBalance();
+                loadTransactionHistory();
+            } else {
+                JOptionPane.showMessageDialog(null, "Transfer Failed: " + result.getDescription());
             }
-        });
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(null, "An error occurred during transfer.");
+        }
+    }
+
+    private void handleLogout() {
+        try {
+            server1.logout(username);
+            JOptionPane.showMessageDialog(null, "Logged out successfully");
+            new LoginScreen().setVisible(true);
+            dispose();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(null, "An error occurred during logout.");
+        }
     }
 
     private void updateBalance() {

@@ -12,7 +12,7 @@ public interface BankService extends Remote {
     boolean isUserOnline(String username) throws RemoteException;
 
     // Financial Operations
-
+    TransactionResult transfer(String sender, String receiver, double amount, String description) throws RemoteException;
     TransactionResult withdraw(String username, double amount, String description) throws RemoteException;
     double getBalance(String username) throws RemoteException;
     void setBalance(String username, double newBalance) throws RemoteException;

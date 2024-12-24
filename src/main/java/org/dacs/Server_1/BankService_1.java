@@ -116,8 +116,10 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
         String query = "UPDATE users SET is_online = FALSE WHERE username = ?";
 
         try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            logger.debug("Attempting to logout user: {}", username); // Log username
             stmt.setString(1, username);
             int rowsUpdated = stmt.executeUpdate();
+            logger.debug("Rows updated: {}", rowsUpdated); // Log rows updated
             if (rowsUpdated > 0) {
                 syncLoginStatusWithOtherServers(username, false);
                 logger.info("User {} logged out successfully.", username);
@@ -129,6 +131,7 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
             throw new RemoteException("Logout failed for user: " + username, e);
         }
     }
+
 
     @Override
     public boolean isUserOnline(String username) throws RemoteException {
@@ -211,6 +214,107 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
                 connection.setAutoCommit(true); // Restore default
             } catch (SQLException e) {
                 e.printStackTrace();
+            }
+        }
+    }
+    @Override
+    public TransactionResult transfer(String sender, String receiver, double amount, String description) throws RemoteException {
+        String getSenderQuery = "SELECT id, balance FROM users WHERE username = ?";
+        String getReceiverQuery = "SELECT id FROM users WHERE username = ?";
+        String updateSenderBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
+        String updateReceiverBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
+        String insertTransactionQuery = "INSERT INTO transactions (user_id, amount, description, timestamp) VALUES (?, ?, ?, NOW())";
+
+        try {
+            connection.setAutoCommit(false); // Bắt đầu transaction
+
+            int senderId;
+            double senderBalance;
+            int receiverId;
+
+            // Lấy thông tin người gửi
+            try (PreparedStatement senderStmt = connection.prepareStatement(getSenderQuery)) {
+                senderStmt.setString(1, sender);
+                try (ResultSet rs = senderStmt.executeQuery()) {
+                    if (rs.next()) {
+                        senderId = rs.getInt("id");
+                        senderBalance = rs.getDouble("balance");
+                    } else {
+                        throw new RemoteException("Sender not found: " + sender);
+                    }
+                }
+            }
+
+            // Kiểm tra số dư
+            if (senderBalance < amount) {
+                throw new RemoteException("Insufficient funds for sender: " + sender);
+            }
+
+            // Lấy thông tin người nhận
+            try (PreparedStatement receiverStmt = connection.prepareStatement(getReceiverQuery)) {
+                receiverStmt.setString(1, receiver);
+                try (ResultSet rs = receiverStmt.executeQuery()) {
+                    if (rs.next()) {
+                        receiverId = rs.getInt("id");
+                    } else {
+                        throw new RemoteException("Receiver not found: " + receiver);
+                    }
+                }
+            }
+
+            // Cập nhật số dư người gửi
+            double newSenderBalance = senderBalance - amount;
+            try (PreparedStatement updateSenderStmt = connection.prepareStatement(updateSenderBalanceQuery)) {
+                updateSenderStmt.setDouble(1, newSenderBalance);
+                updateSenderStmt.setInt(2, senderId);
+                updateSenderStmt.executeUpdate();
+            }
+
+            // Cập nhật số dư người nhận
+            try (PreparedStatement updateReceiverStmt = connection.prepareStatement(updateReceiverBalanceQuery)) {
+                updateReceiverStmt.setDouble(1, amount); // Thêm tiền cho người nhận
+                updateReceiverStmt.setInt(2, receiverId);
+                updateReceiverStmt.executeUpdate();
+            }
+
+            // Ghi nhận giao dịch của người gửi
+            try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
+                insertTransactionStmt.setInt(1, senderId);
+                insertTransactionStmt.setDouble(2, -amount); // Âm vì là gửi tiền
+                insertTransactionStmt.setString(3, description);
+                insertTransactionStmt.executeUpdate();
+            }
+
+            // Ghi nhận giao dịch của người nhận
+            try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
+                insertTransactionStmt.setInt(1, receiverId);
+                insertTransactionStmt.setDouble(2, amount); // Dương vì là nhận tiền
+                insertTransactionStmt.setString(3, "Received from " + sender + ": " + description);
+                insertTransactionStmt.executeUpdate();
+            }
+
+            connection.commit(); // Commit transaction
+
+            // Trả về kết quả giao dịch
+            return new TransactionResult(
+                    true,
+                    newSenderBalance,
+                    -amount,
+                    description,
+                    new java.util.Date().toString()
+            );
+        } catch (Exception e) {
+            try {
+                connection.rollback(); // Rollback nếu xảy ra lỗi
+            } catch (SQLException rollbackEx) {
+                throw new RemoteException("Transaction failed and rollback failed", rollbackEx);
+            }
+            throw new RemoteException("Transfer failed: " + e.getMessage(), e);
+        } finally {
+            try {
+                connection.setAutoCommit(true); // Khôi phục trạng thái auto-commit
+            } catch (SQLException e) {
+                throw new RemoteException("Failed to reset auto-commit", e);
             }
         }
     }
@@ -433,26 +537,6 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
                 logger.info("Successfully synced login status with server: {}", server);
             } catch (Exception e) {
                 logger.error("Error syncing login status with server: {}", server, e);
-            }
-        }
-    }
-
-    private void syncTransactionWithOtherServers(int userId, double amount, String description) {
-        List<ServerAddress> servers = new ArrayList<>();
-        servers.add(new ServerAddress("localhost", 2004)); // Server 2
-        servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
-
-        // Exclude self from synchronization to prevent recursive calls
-        servers.removeIf(server -> server.getPort() == 2000); // Server 1's port
-
-        for (ServerAddress server : servers) {
-            try {
-                Registry registry = LocateRegistry.getRegistry(server.getAddress(), server.getPort());
-                BankService bankService = (BankService) registry.lookup("BankService");
-                bankService.syncTransaction(userId, amount, description, true); // Pass flag to prevent further syncing
-                logger.info("Successfully synced transaction with server: {}", server);
-            } catch (Exception e) {
-                logger.error("Error syncing transaction with server: {}", server, e);
             }
         }
     }
