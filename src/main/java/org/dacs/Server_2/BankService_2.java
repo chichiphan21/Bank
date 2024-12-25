@@ -13,6 +13,7 @@ import java.rmi.server.UnicastRemoteObject;
 import java.sql.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,7 +35,7 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
     }
 
     @Override
-    public boolean sendOTP(String to, String subject, String text) throws RemoteException {
+    public boolean sendOTP(String username, String to, String subject, String text) throws RemoteException {
         try {
 //        Step 1: Create OTP and time created otp and store in database
             String otp = Otp.generateOTP();
@@ -50,7 +51,7 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
 //        Step 2: Send OTP to email
             EmailSender.sendEmail(to, subject, text + otp);
             logger.info("OTP sent to email: {}", to);
-            syncOtpWithOtherServers(to, otp);
+            syncOtpWithOtherServers(username,to, otp);
 //        Step 3 : Return true if send email success
             return true;
         } catch (Exception e) {
@@ -86,8 +87,8 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
                 throw new RemoteException("Error verifying OTP for user: " + username, e);
             }
             //        Step 2: Check time created otp < 5 minutes
-            LocalDateTime otpCreatedTime = LocalDateTime.parse(otpCreatedAt);
-            LocalDateTime currentTime = LocalDateTime.now();
+            LocalTime otpCreatedTime = LocalTime.parse(otpCreatedAt);
+            LocalTime currentTime = LocalTime.now();
             Duration duration = Duration.between(otpCreatedTime, currentTime);
             if (duration.toMinutes() > 5) {
                 logger.warn("OTP expired: {}", otp);
@@ -364,11 +365,11 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
         return transactions;
     }
 
-    // Synchronization Methods with Flags
+    // Synchronization Methods with Flag
     @Override
     public boolean syncRegister(String username, String hashedPassword, String email) throws RemoteException {
         String checkQuery = "SELECT * FROM users WHERE username = ?";
-        String insertQuery = "INSERT INTO users (username, password, balance, is_online, email) VALUES (?, ?, ?, ?, ?) RETURNING id";
+        String insertQuery = "INSERT INTO users (username, password, balance, is_online, email,otp,otp_created_at) VALUES (?, ?, ?, ?, ?,?,?) RETURNING id";
 
         try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
             checkStmt.setString(1, username);
@@ -385,6 +386,8 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
                 insertStmt.setDouble(3, 0.0); // Initial balance
                 insertStmt.setBoolean(4, false); // Offline by default
                 insertStmt.setString(5, email);
+                insertStmt.setString(6, "");
+                insertStmt.setTime(7, null);
                 try (ResultSet rs = insertStmt.executeQuery()) {
                     if (rs.next()) {
                         int newUserId = rs.getInt("id");
@@ -435,10 +438,12 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
 
     @Override
     public void syncOTP(String username, String otp) throws RemoteException {
-        String query = "UPDATE users SET otp = ? WHERE username = ?";
+        LocalDateTime otpCreatedAt = LocalDateTime.now();
+        String query = "UPDATE users SET otp = ?, otp_created_at = ? WHERE username = ?";
         try (PreparedStatement stmt = connection.prepareStatement(query)) {
             stmt.setString(1, otp);
-            stmt.setString(2, username);
+            stmt.setTimestamp(2, Timestamp.valueOf(otpCreatedAt));
+            stmt.setString(3, username);
             int rowsUpdated = stmt.executeUpdate();
             if (rowsUpdated > 0) {
                 logger.info("OTP synced for user: {}", username);
@@ -578,13 +583,15 @@ public class BankService_2 extends UnicastRemoteObject implements BankService {
             }
         }
     }
-    private void syncOtpWithOtherServers(String username, String otp) {
+    private void syncOtpWithOtherServers(String username,String email, String otp) {
+        System.out.println("Sync OTP with other servers: " + otp);
+        System.out.println("Sync OTP with other servers: " + email);
         List<ServerAddress> servers = new ArrayList<>();
-        servers.add(new ServerAddress("localhost", 2000)); // Server 1
-        // servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
+        servers.add(new ServerAddress("localhost", 2004)); // Server 2
+        servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
 
         // Exclude self from synchronization to prevent recursive calls
-        servers.removeIf(server -> server.getPort() == 2004); // Server 1's port
+        servers.removeIf(server -> server.getPort() == 2000); // Server 1's port
 
         for (ServerAddress server : servers) {
             try {

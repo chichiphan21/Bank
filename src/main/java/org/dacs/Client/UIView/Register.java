@@ -77,7 +77,7 @@ public class Register extends JFrame {
 //                            BankClientView bankClientView = new BankClientView(username, server1, server2);
 //                            bankClientView.setVisible(true);
 //                            server1.login(username, password);
-                            server1.sendOTP(email, "OTP Verification", "Your OTP is: ");
+                            server1.sendOTP(username,email, "OTP Verification", "Your OTP is: ");
                             OTPVerification otpVerification = new OTPVerification(username, password, email, server1, server2);
                             otpVerification.setVisible(true);
                         } else {
