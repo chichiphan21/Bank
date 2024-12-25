@@ -18,7 +18,7 @@ public class Transaction implements Serializable {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private int userId;
+    private Long userId;
     private double amount;
     private String description;
     private Timestamp timestamp;

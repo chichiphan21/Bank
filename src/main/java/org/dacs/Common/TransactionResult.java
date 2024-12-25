@@ -9,6 +9,9 @@ public class TransactionResult implements Serializable {
     private String description;
     private String timestamp;
 
+    public TransactionResult() {
+    }
+
     public TransactionResult(boolean success, double newBalance, double amountChanged, String description, String timestamp) {
         this.success = success;
         this.newBalance = newBalance;
