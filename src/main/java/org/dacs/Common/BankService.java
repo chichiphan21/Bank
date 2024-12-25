@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface BankService extends Remote {
     // Send OTP when register
-    boolean sendOTP(String to, String subject, String text) throws RemoteException;
+    boolean sendOTP(String username, String to, String subject, String text) throws RemoteException;
 //    Verify OTP when register
     boolean verifyOTP(String username, String otp) throws RemoteException;
     // User Management
