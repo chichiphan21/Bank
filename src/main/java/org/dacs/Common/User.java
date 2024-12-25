@@ -34,11 +34,19 @@ public class User implements Serializable {
     @Column(name = "is_online")
     private boolean online;
 
+
+    public User(Long id, String username, double balance) {
+        this.id = id;
+        this.username = username;
+        this.balance = balance;
+    }
+
     @Column
     private String otp;
 
     @Column
     private LocalDateTime otpCreatedAt;
+
 
 
 }

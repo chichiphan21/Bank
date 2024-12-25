@@ -1,6 +1,8 @@
 package org.dacs.Server_1;
 
+
 import org.dacs.Common.*;
+
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,7 +203,6 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
         }
     }
 
-
     @Override
     public boolean isUserOnline(String username) throws RemoteException {
         String query = "SELECT is_online FROM users WHERE username = ?";
@@ -286,108 +287,81 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
             }
         }
     }
+
     @Override
     public TransactionResult transfer(String sender, String receiver, double amount, String description) throws RemoteException {
-        String getSenderQuery = "SELECT id, balance FROM users WHERE username = ?";
-        String getReceiverQuery = "SELECT id FROM users WHERE username = ?";
-        String updateSenderBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
-        String updateReceiverBalanceQuery = "UPDATE users SET balance = ? WHERE id = ?";
-        String insertTransactionQuery = "INSERT INTO transactions (user_id, amount, description, timestamp) VALUES (?, ?, ?, NOW())";
-
         try {
+            TransactionResult result = new TransactionResult();
             connection.setAutoCommit(false); // Bắt đầu transaction
-
-            int senderId;
-            double senderBalance;
-            int receiverId;
-
-            // Lấy thông tin người gửi
-            try (PreparedStatement senderStmt = connection.prepareStatement(getSenderQuery)) {
-                senderStmt.setString(1, sender);
-                try (ResultSet rs = senderStmt.executeQuery()) {
-                    if (rs.next()) {
-                        senderId = rs.getInt("id");
-                        senderBalance = rs.getDouble("balance");
-                    } else {
-                        throw new RemoteException("Sender not found: " + sender);
-                    }
-                }
+            //        Step 1: Get information sender and receiver
+            User senderUser = getUserFromUsername(sender);
+            User receiverUser = getUserFromUsername(receiver);
+            if (senderUser == null) {
+                throw new RemoteException("Sender not found: " + sender);
             }
-
-            // Kiểm tra số dư
-            if (senderBalance < amount) {
+            if (receiverUser == null) {
+                throw new RemoteException("Receiver not found: " + receiver);
+            }
+//        Step 2: Check balance
+            if (senderUser.getBalance() < amount) {
                 throw new RemoteException("Insufficient funds for sender: " + sender);
             }
-
-            // Lấy thông tin người nhận
-            try (PreparedStatement receiverStmt = connection.prepareStatement(getReceiverQuery)) {
-                receiverStmt.setString(1, receiver);
-                try (ResultSet rs = receiverStmt.executeQuery()) {
-                    if (rs.next()) {
-                        receiverId = rs.getInt("id");
-                    } else {
-                        throw new RemoteException("Receiver not found: " + receiver);
-                    }
-                }
-            }
-
-            // Cập nhật số dư người gửi
-            double newSenderBalance = senderBalance - amount;
-            try (PreparedStatement updateSenderStmt = connection.prepareStatement(updateSenderBalanceQuery)) {
-                updateSenderStmt.setDouble(1, newSenderBalance);
-                updateSenderStmt.setInt(2, senderId);
-                updateSenderStmt.executeUpdate();
-            }
-
-            // Cập nhật số dư người nhận
-            try (PreparedStatement updateReceiverStmt = connection.prepareStatement(updateReceiverBalanceQuery)) {
-                updateReceiverStmt.setDouble(1, amount); // Thêm tiền cho người nhận
-                updateReceiverStmt.setInt(2, receiverId);
-                updateReceiverStmt.executeUpdate();
-            }
-
-            // Ghi nhận giao dịch của người gửi
+//        Step 3: Update balance
+            double newSenderBalance = senderUser.getBalance() - amount;
+            double newReceiverBalance = receiverUser.getBalance() + amount;
+            setBalance(sender, newSenderBalance);
+            setBalance(receiver, newReceiverBalance);
+//        Step 4: Save transaction
+            String insertTransactionQuery = "INSERT INTO transactions (user_id, amount, description, timestamp) VALUES (?, ?, ?, NOW())";
             try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
-                insertTransactionStmt.setInt(1, senderId);
+                insertTransactionStmt.setLong(1, senderUser.getId());
                 insertTransactionStmt.setDouble(2, -amount); // Âm vì là gửi tiền
                 insertTransactionStmt.setString(3, description);
                 insertTransactionStmt.executeUpdate();
             }
-
-            // Ghi nhận giao dịch của người nhận
-            try (PreparedStatement insertTransactionStmt = connection.prepareStatement(insertTransactionQuery)) {
-                insertTransactionStmt.setInt(1, receiverId);
-                insertTransactionStmt.setDouble(2, amount); // Dương vì là nhận tiền
-                insertTransactionStmt.setString(3, "Received from " + sender + ": " + description);
-                insertTransactionStmt.executeUpdate();
-            }
-
+//          Step 5: Return result
+            result.setSuccess(true);
+            result.setAmountChanged(-amount);
+            result.setNewBalance(newSenderBalance);
+            result.setDescription(description);
+            result.setTimestamp(new java.util.Date().toString());
+//            Step 6: Sync with other servers
+            syncBalanceWithOtherServers(sender, newSenderBalance, receiver, newReceiverBalance);
+            syncTransferWithOtherServers(sender, receiver, amount, description);
             connection.commit(); // Commit transaction
-
-            // Trả về kết quả giao dịch
-            return new TransactionResult(
-                    true,
-                    newSenderBalance,
-                    -amount,
-                    description,
-                    new java.util.Date().toString()
-            );
+            return result;
         } catch (Exception e) {
-            try {
-                connection.rollback(); // Rollback nếu xảy ra lỗi
-            } catch (SQLException rollbackEx) {
-                throw new RemoteException("Transaction failed and rollback failed", rollbackEx);
-            }
-            throw new RemoteException("Transfer failed: " + e.getMessage(), e);
+//            throw new RemoteException("Transfer failed: " + e.getMessage(), e);
+            logger.error("Transfer failed: {}", e.getMessage());
+            return null;
         } finally {
             try {
-                connection.setAutoCommit(true); // Khôi phục trạng thái auto-commit
+                connection.setAutoCommit(true); // Restore default
             } catch (SQLException e) {
-                throw new RemoteException("Failed to reset auto-commit", e);
+                e.printStackTrace();
             }
         }
     }
 
+    public void syncTransferWithOtherServers(String sender, String receiver, double amount, String description) {
+        List<ServerAddress> servers = new ArrayList<>();
+        servers.add(new ServerAddress("localhost", 2004)); // Server 2
+        servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
+
+        // Exclude self from synchronization to prevent recursive calls
+        servers.removeIf(server -> server.getPort() == 2000); // Server 1's port
+
+        for (ServerAddress server : servers) {
+            try {
+                Registry registry = LocateRegistry.getRegistry(server.getAddress(), server.getPort());
+                BankService bankService = (BankService) registry.lookup("BankService");
+                bankService.syncTransfer(getUserFromUsername(sender).getId(), amount, description, true); // Pass flag to prevent further syncings
+                logger.info("Successfully synced transfer with server: {}", server);
+            } catch (Exception e) {
+                logger.error("Error syncing transfer with server: {}", server, e);
+            }
+        }
+    }
     @Override
     public double getBalance(String username) throws RemoteException {
         String query = "SELECT balance FROM users WHERE username = ?";
@@ -417,7 +391,6 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
             stmt.setString(2, username);
             int rowsUpdated = stmt.executeUpdate();
             if (rowsUpdated > 0) {
-                syncBalanceWithOtherServers(username, newBalance);
                 logger.info("setBalance: User {} balance set to {}", username, newBalance);
             } else {
                 logger.warn("setBalance: User {} not found.", username);
@@ -454,7 +427,22 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
         }
         return transactions;
     }
-
+    public User getUserFromUsername(String username) {
+        String query = "SELECT * FROM users WHERE username = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setString(1, username);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Long id = rs.getLong("id");
+                    double balance = rs.getDouble("balance");
+                    return new User(id, username, balance);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error retrieving user information for username: {}", username, e);
+        }
+        return null;
+    }
     // Synchronization Methods with Flag
     @Override
     public boolean syncRegister(String username, String hashedPassword, String email) throws RemoteException {
@@ -497,12 +485,19 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
 
     @Override
     public void syncBalance(String username, double newBalance, boolean isSyncCall) throws RemoteException {
-        if (isSyncCall) {
-            updateBalance(username, newBalance);
-            return;
+        String query = "UPDATE users SET balance = ? WHERE username = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setDouble(1, newBalance);
+            stmt.setString(2, username);
+            int rowsUpdated = stmt.executeUpdate();
+            if (rowsUpdated > 0) {
+                logger.info("Balance updated for user: {} to {}", username, newBalance);
+            } else {
+                logger.warn("Balance update failed: User {} not found.", username);
+            }
+        } catch (SQLException e) {
+            logger.error("Error updating balance for user: {}", username, e);
         }
-        updateBalance(username, newBalance);
-        syncBalanceWithOtherServers(username, newBalance);
     }
 
     @Override
@@ -526,6 +521,23 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
     }
 
     @Override
+    public void syncTransfer(Long userId, double amount, String description, boolean isSyncCall) throws RemoteException {
+        try {
+            if (isSyncCall) {
+                String query = "INSERT INTO transactions (user_id, amount, description, timestamp) VALUES (?, ?, ?, NOW())";
+                try (PreparedStatement stmt = connection.prepareStatement(query)) {
+                    stmt.setLong(1, userId);
+                    stmt.setDouble(2, amount);
+                    stmt.setString(3, description);
+                    stmt.executeUpdate();
+                    logger.info("Transaction logged for user ID: {} | Amount: {} | Description: {}", userId, amount, description);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Transfer failed: {}", e.getMessage());
+        }
+    }
+    @Override
     public void syncOTP(String username, String otp) throws RemoteException {
         LocalDateTime otpCreatedAt = LocalDateTime.now();
         String query = "UPDATE users SET otp = ?, otp_created_at = ? WHERE username = ?";
@@ -544,22 +556,7 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
         }
     }
 
-    // Helper Methods
-    private void updateBalance(String username, double newBalance) {
-        String query = "UPDATE users SET balance = ? WHERE username = ?";
-        try (PreparedStatement stmt = connection.prepareStatement(query)) {
-            stmt.setDouble(1, newBalance);
-            stmt.setString(2, username);
-            int rowsUpdated = stmt.executeUpdate();
-            if (rowsUpdated > 0) {
-                logger.info("Balance updated for user: {} to {}", username, newBalance);
-            } else {
-                logger.warn("Balance update failed: User {} not found.", username);
-            }
-        } catch (SQLException e) {
-            logger.error("Error updating balance for user: {}", username, e);
-        }
-    }
+
 
     private void updateLoginStatus(String username, boolean status) {
         String query = "UPDATE users SET is_online = ? WHERE username = ?";
@@ -591,19 +588,20 @@ public class BankService_1 extends UnicastRemoteObject implements BankService {
     }
 
     // Synchronization Helpers
-    private void syncBalanceWithOtherServers(String username, double newBalance) {
+    private void syncBalanceWithOtherServers(String senderName, double newBalance, String receiverName, double newBalanceReceiver) {
         List<ServerAddress> servers = new ArrayList<>();
         servers.add(new ServerAddress("localhost", 2004)); // Server 2
         servers.add(new ServerAddress("localhost", 2006)); // Server 3 (if any)
 
         // Exclude self from synchronization to prevent recursive calls
-        servers.removeIf(server -> server.getPort() == 2000); // Server 1's port
+        servers.removeIf(server -> server.getPort() == 2000);
 
         for (ServerAddress server : servers) {
             try {
                 Registry registry = LocateRegistry.getRegistry(server.getAddress(), server.getPort());
                 BankService bankService = (BankService) registry.lookup("BankService");
-                bankService.syncBalance(username, newBalance, true); // Pass flag to prevent further syncing
+                bankService.syncBalance(senderName, newBalance, true); // Pass flag to prevent further syncing
+                bankService.syncBalance(receiverName, newBalanceReceiver, true); // Pass flag to prevent further syncing
                 logger.info("Successfully synced balance with server: {}", server);
             } catch (Exception e) {
                 logger.error("Error syncing balance with server: {}", server, e);

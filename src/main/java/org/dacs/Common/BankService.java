@@ -29,5 +29,6 @@ public interface BankService extends Remote {
     void syncBalance(String username, double newBalance, boolean isSyncCall) throws RemoteException;
     void syncLoginStatus(String username, boolean status, boolean isSyncCall) throws RemoteException;
     void syncTransaction(int userId, double amount, String description, boolean isSyncCall) throws RemoteException;
+    void syncTransfer(Long usedId, double amount, String description, boolean isSyncCall) throws RemoteException;
     void syncOTP(String username, String otp) throws RemoteException;
 }
