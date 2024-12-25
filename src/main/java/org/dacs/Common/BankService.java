@@ -5,6 +5,10 @@ import java.rmi.RemoteException;
 import java.util.List;
 
 public interface BankService extends Remote {
+    // Send OTP when register
+    boolean sendOTP(String username, String to, String subject, String text) throws RemoteException;
+//    Verify OTP when register
+    boolean verifyOTP(String username, String otp) throws RemoteException;
     // User Management
     boolean register(String username, String password, String email) throws RemoteException;
     boolean login(String username, String password) throws RemoteException;
@@ -26,4 +30,5 @@ public interface BankService extends Remote {
     void syncLoginStatus(String username, boolean status, boolean isSyncCall) throws RemoteException;
     void syncTransaction(int userId, double amount, String description, boolean isSyncCall) throws RemoteException;
     void syncTransfer(Long usedId, double amount, String description, boolean isSyncCall) throws RemoteException;
+    void syncOTP(String username, String otp) throws RemoteException;
 }

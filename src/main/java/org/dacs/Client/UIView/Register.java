@@ -2,6 +2,7 @@ package org.dacs.Client.UIView;
 
 import org.dacs.Common.BankService;
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.rmi.Naming;
@@ -22,6 +23,27 @@ public class Register extends JFrame {
         setSize(300, 300);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
+        // Khởi tạo panel1
+        panel1 = new JPanel();
+        panel1.setLayout(new GridLayout(4, 2)); // Sử dụng GridLayout cho bố cục các thành phần
+
+        // Thêm các thành phần GUI vào panel1
+        panel1.add(new JLabel("Email:"));
+        getEmail = new JTextField();
+        panel1.add(getEmail);
+
+        panel1.add(new JLabel("Username:"));
+        getUserName = new JTextField();
+        panel1.add(getUserName);
+
+        panel1.add(new JLabel("Password:"));
+        getPass = new JPasswordField();
+        panel1.add(getPass);
+
+        register = new JButton("Register");
+        panel1.add(register);
+
+        // Thêm panel1 vào JFrame
         add(panel1);
     }
     // Constructor where button listener is defined
@@ -52,9 +74,12 @@ public class Register extends JFrame {
                     try {
                         if (server1.register(username, password, email)) {
                             JOptionPane.showMessageDialog(Register.this, "Registration to Server 1: Success");
-                            BankClientView bankClientView = new BankClientView(username, server1, server2);
-                            bankClientView.setVisible(true);
-                            server1.login(username, password);
+//                            BankClientView bankClientView = new BankClientView(username, server1, server2);
+//                            bankClientView.setVisible(true);
+//                            server1.login(username, password);
+                            server1.sendOTP(username,email, "OTP Verification", "Your OTP is: ");
+                            OTPVerification otpVerification = new OTPVerification(username, password, email, server1, server2);
+                            otpVerification.setVisible(true);
                         } else {
                             JOptionPane.showMessageDialog(Register.this, "Registration to Server 1: Failed");
                         }

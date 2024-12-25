@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -32,9 +34,19 @@ public class User implements Serializable {
     @Column(name = "is_online")
     private boolean online;
 
+
     public User(Long id, String username, double balance) {
         this.id = id;
         this.username = username;
         this.balance = balance;
     }
+
+    @Column
+    private String otp;
+
+    @Column
+    private LocalDateTime otpCreatedAt;
+
+
+
 }
